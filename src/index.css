@@ -1,0 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@200;300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --color-brand-dark: #0f172a;
+  --color-brand-darker: #020617;
+  --color-brand-primary: #2ecc71;
+  --color-brand-secondary: #3b82f6;
+  --color-brand-accent: #c5a070;
+  --color-brand-gold: #d4af37;
+  --color-brand-border: rgba(197, 160, 112, 0.2);
+}
+
+:root {
+  /* --- MOBILE DEFAULTS (Base 16px) --- */
+  --fs-h1: 2rem;         /* 32px */
+  --fs-h2: 1.625rem;     /* 26px */
+  --fs-h3: 1.375rem;     /* 22px */
+  --fs-body: 1rem;       /* 16px */
+  --fs-caption: 0.875rem; /* 14px */
+
+  /* --- LINE HEIGHTS --- */
+  --lh-heading: 1.2;
+  --lh-body: 1.55;
+  --lh-caption: 1.4;
+}
+
+/* --- TABLET STYLES (Min-width: 768px) --- */
+@media (min-width: 768px) {
+  :root {
+    --fs-h1: 2.5rem;     /* 40px */
+    --fs-h2: 2rem;       /* 32px */
+    --fs-h3: 1.5rem;     /* 24px */
+    --fs-body: 1rem;     /* 16px */
+  }
+}
+
+/* --- DESKTOP STYLES (Min-width: 1024px) --- */
+@media (min-width: 1024px) {
+  :root {
+    --fs-h1: 3rem;       /* 48px */
+    --fs-h2: 2.25rem;    /* 36px */
+    --fs-h3: 1.75rem;    /* 28px */
+    --fs-body: 1.125rem; /* 18px */
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-brand-dark text-slate-100 antialiased;
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+  }
+
+  h1 {
+    font-size: var(--fs-h1);
+    line-height: var(--lh-heading);
+    @apply font-black tracking-tighter;
+  }
+
+  h2 {
+    font-size: var(--fs-h2);
+    line-height: var(--lh-heading);
+    @apply font-bold tracking-tight;
+  }
+
+  h3 {
+    font-size: var(--fs-h3);
+    line-height: var(--lh-heading);
+    @apply font-bold;
+  }
+
+  p {
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+  }
+
+  small, .caption {
+    font-size: var(--fs-caption);
+    line-height: var(--lh-caption);
+  }
+}
+
+@layer components {
+  .form-input {
+    @apply w-full bg-brand-darker/50 border border-brand-accent/10 rounded-lg px-4 py-2 text-slate-200 text-sm text-right placeholder:text-slate-600 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary outline-none transition-all;
+    @apply pl-10 pr-4;
+    direction: rtl;
+  }
+  
+  .form-label {
+    @apply text-[10px] font-black text-slate-500 mb-1 block text-right uppercase tracking-widest;
+  }
+
+  .card-option {
+    @apply flex flex-row-reverse items-center gap-3 p-2.5 rounded-lg border border-brand-accent/10 bg-brand-darker/30 cursor-pointer transition-all hover:border-brand-primary/30 text-right justify-start;
+  }
+
+  .card-option.active {
+    @apply border-brand-primary bg-brand-primary/10;
+  }
+}

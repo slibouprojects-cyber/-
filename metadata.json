@@ -1,0 +1,7 @@
+{
+  "name": " موقع المعرض الاقتصادي 2026",
+  "description": "A registration platform for the El Guerrara Economic Exhibition 2026 (Second Edition) with digital badges and contact management.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
