@@ -414,6 +414,84 @@ async function startServer() {
     }
   });
 
+  // Organizer login
+  app.post('/api/organizer/login', (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'بيانات ناقصة' });
+    if (username === 'admin' && password === 'Gexpo@2026') {
+      return res.json({ id: 0, fullName: 'مدير النظام', type: 'organizer', username: 'admin' });
+    }
+    try {
+      const organizer = db.prepare(
+        "SELECT id, fullName, type, username FROM registrations WHERE username = ? AND password = ? AND type IN ('organizer', 'security')"
+      ).get(username, password) as any;
+      if (!organizer) return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+      res.json(organizer);
+    } catch (error) {
+      res.status(500).json({ error: 'خطأ في الخادم' });
+    }
+  });
+
+  // Get attendees for a specific activity (with registration details)
+  app.get('/api/attendance/activity/:activityId', (req, res) => {
+    const activityId = req.params.activityId;
+    try {
+      const attendees = db.prepare(`
+        SELECT aa.id, aa.attendedAt, r.id as registrationId, r.fullName, r.type, r.companyName, r.photo, r.phone,
+          (${activityId} || '-' || printf('%04d', r.id)) as badgeId
+        FROM activity_attendance aa
+        JOIN registrations r ON aa.registrationId = r.id
+        WHERE aa.activityId = ?
+        ORDER BY aa.attendedAt DESC
+      `).all(activityId);
+      res.json(attendees);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'فشل في جلب قائمة الحضور' });
+    }
+  });
+
+  // Record attendance by formatted badge ID (e.g. ATT-2026-0001)
+  app.post('/api/attendance/by-badge', (req, res) => {
+    const { activityId, badgeId } = req.body;
+    if (!activityId || !badgeId) return res.status(400).json({ error: 'بيانات ناقصة' });
+    const idMatch = (badgeId as string).match(/\d+$/);
+    if (!idMatch) return res.status(400).json({ error: 'صيغة الـ ID غير صحيحة' });
+    const registrationId = parseInt(idMatch[0]);
+    try {
+      const registration = db.prepare("SELECT * FROM registrations WHERE id = ?").get(registrationId) as any;
+      if (!registration) return res.status(404).json({ error: 'لم يتم العثور على المسجل' });
+      const existing = db.prepare("SELECT * FROM activity_attendance WHERE activityId = ? AND registrationId = ?").get(activityId, registrationId);
+      if (existing) {
+        return res.json({ message: 'تم تسجيل الحضور مسبقاً', alreadyAttended: true, registration });
+      }
+      db.prepare('INSERT INTO activity_attendance (activityId, registrationId) VALUES (?, ?)').run(activityId, registrationId);
+      res.json({ message: 'تم تسجيل الحضور بنجاح', alreadyAttended: false, registration });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'فشل في تسجيل الحضور' });
+    }
+  });
+
+  // Record attendance by phone number
+  app.post('/api/attendance/by-phone', (req, res) => {
+    const { activityId, phone } = req.body;
+    if (!activityId || !phone) return res.status(400).json({ error: 'بيانات ناقصة' });
+    try {
+      const registration = db.prepare("SELECT * FROM registrations WHERE phone = ?").get(phone) as any;
+      if (!registration) return res.status(404).json({ error: 'لم يتم العثور على مسجل بهذا الرقم' });
+      const existing = db.prepare("SELECT * FROM activity_attendance WHERE activityId = ? AND registrationId = ?").get(activityId, registration.id);
+      if (existing) {
+        return res.json({ message: 'تم تسجيل الحضور مسبقاً', alreadyAttended: true, registration });
+      }
+      db.prepare('INSERT INTO activity_attendance (activityId, registrationId) VALUES (?, ?)').run(activityId, registration.id);
+      res.json({ message: 'تم تسجيل الحضور بنجاح', alreadyAttended: false, registration });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'فشل في تسجيل الحضور' });
+    }
+  });
+
   // Attendance API
   app.post('/api/attendance', (req, res) => {
     const { activityId, registrationId } = req.body;

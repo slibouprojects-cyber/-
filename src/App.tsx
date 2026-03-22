@@ -247,6 +247,578 @@ const LoginView = ({
   );
 };
 
+// ─── Checkin View ─────────────────────────────────────────────────────────────
+const CheckinView = ({ setView, siteContent }: { setView: (v: any) => void; siteContent: any }) => {
+  type Step = 'login' | 'select' | 'active';
+  const [step, setStep] = useState<Step>('login');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [organizer, setOrganizer] = useState<any>(null);
+  const [activities, setActivities] = useState<any[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<any>(null);
+  const [attendees, setAttendees] = useState<any[]>([]);
+  const [inputMode, setInputMode] = useState<'qr' | 'manual'>('manual');
+  const [manualInput, setManualInput] = useState('');
+  const [manualLoading, setManualLoading] = useState(false);
+  const [newBadge, setNewBadge] = useState<any>(null);
+  const [newBadgeVisible, setNewBadgeVisible] = useState(false);
+  const [scannerActive, setScannerActive] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const manualRef = useRef<HTMLInputElement>(null);
+
+  const getPrefix = (type: string) => {
+    switch(type) {
+      case 'exhibitor': return 'EXH';
+      case 'sponsor': return 'SPN';
+      case 'organizer': return 'ORG';
+      case 'security': return 'SEC';
+      case 'services': return 'SRV';
+      default: return 'ATT';
+    }
+  };
+  const formatId = (id: number, type: string) => `${getPrefix(type)}-2026-${id.toString().padStart(4, '0')}`;
+
+  const typeLabel = (type: string) => {
+    switch(type) {
+      case 'attendee': return 'زائر';
+      case 'exhibitor': return 'عارض';
+      case 'sponsor': return 'راعي';
+      case 'organizer': return 'منظم';
+      case 'security': return 'أمن';
+      case 'services': return 'خدمات';
+      default: return type;
+    }
+  };
+
+  const typeColor = (type: string) => {
+    switch(type) {
+      case 'attendee': return 'bg-blue-500';
+      case 'exhibitor': return 'bg-emerald-500';
+      case 'sponsor': return 'bg-amber-500';
+      case 'organizer': return 'bg-purple-500';
+      case 'security': return 'bg-red-500';
+      default: return 'bg-slate-500';
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
+    try {
+      const res = await fetch('/api/organizer/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) { setLoginError(data.error || 'فشل تسجيل الدخول'); return; }
+      setOrganizer(data);
+      setLoadingActivities(true);
+      const actRes = await fetch('/api/activities');
+      const actData = await actRes.json();
+      setActivities(actData);
+      setStep('select');
+    } catch {
+      setLoginError('خطأ في الاتصال بالخادم');
+    } finally {
+      setLoginLoading(false);
+      setLoadingActivities(false);
+    }
+  };
+
+  const selectActivity = async (activity: any) => {
+    setSelectedActivity(activity);
+    setStep('active');
+    await fetchAttendees(activity.id);
+  };
+
+  const fetchAttendees = async (activityId: number) => {
+    try {
+      const res = await fetch(`/api/attendance/activity/${activityId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAttendees(data);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (step === 'active' && selectedActivity) {
+      pollRef.current = setInterval(() => fetchAttendees(selectedActivity.id), 5000);
+      return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    }
+  }, [step, selectedActivity]);
+
+  const showBadgeFlash = (registration: any) => {
+    setNewBadge(registration);
+    setNewBadgeVisible(true);
+    setTimeout(() => setNewBadgeVisible(false), 4000);
+  };
+
+  const recordAttendance = async (badgeId: string) => {
+    if (!selectedActivity || !badgeId.trim()) return;
+    setManualLoading(true);
+    try {
+      const isPhone = /^\d{9,10}$/.test(badgeId.trim());
+      const endpoint = isPhone ? '/api/attendance/by-phone' : '/api/attendance/by-badge';
+      const body = isPhone
+        ? { activityId: selectedActivity.id, phone: badgeId.trim() }
+        : { activityId: selectedActivity.id, badgeId: badgeId.trim() };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'خطأ في تسجيل الحضور');
+        return;
+      }
+      if (data.alreadyAttended) {
+        alert('⚠️ تم تسجيل هذا الشخص مسبقًا في هذا النشاط');
+        return;
+      }
+      await fetchAttendees(selectedActivity.id);
+      showBadgeFlash(data.registration);
+      setManualInput('');
+      setTimeout(() => manualRef.current?.focus(), 100);
+    } catch {
+      alert('خطأ في الاتصال بالخادم');
+    } finally {
+      setManualLoading(false);
+    }
+  };
+
+  const startScanner = async () => {
+    setScannerActive(true);
+    await new Promise(r => setTimeout(r, 300));
+    try {
+      const html5QrCode = new Html5Qrcode("checkin-reader");
+      scannerRef.current = html5QrCode;
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        async (decodedText) => {
+          await html5QrCode.stop();
+          scannerRef.current = null;
+          setScannerActive(false);
+          setInputMode('manual');
+          await recordAttendance(decodedText.trim());
+        },
+        () => {}
+      );
+    } catch (err) {
+      console.error("Scanner error", err);
+      setScannerActive(false);
+      alert('لا يمكن الوصول للكاميرا');
+    }
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      await scannerRef.current.stop().catch(() => {});
+      scannerRef.current = null;
+    }
+    setScannerActive(false);
+  };
+
+  useEffect(() => {
+    return () => { stopScanner(); if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const selfCheckinUrl = selectedActivity ? `${baseUrl}/?checkin=${selectedActivity.id}` : '';
+
+  const activityTypeLabel = (type: string) => {
+    switch(type) {
+      case 'hall': return 'قاعة';
+      case 'workshop': return 'ورشة';
+      case 'lecture': return 'محاضرة';
+      case 'activity': return 'نشاط';
+      default: return type;
+    }
+  };
+
+  // ── Login Step ──────────────────────────────────────────────────────────────
+  if (step === 'login') return (
+    <div className="min-h-screen flex items-center justify-center p-6 bg-brand-dark" dir="rtl">
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center space-y-3">
+          <div className="w-20 h-20 bg-brand-primary/10 rounded-3xl flex items-center justify-center mx-auto">
+            <Scan className="w-10 h-10 text-brand-primary" />
+          </div>
+          <h1 className="text-3xl font-black text-white">نظام تسجيل الحضور</h1>
+          <p className="text-slate-400 font-medium">تسجيل دخول المنظمين</p>
+        </div>
+        <form onSubmit={handleLogin} className="space-y-4 bg-brand-darker p-8 rounded-3xl border border-brand-accent/10">
+          <div className="space-y-2">
+            <label className="form-label">اسم المستخدم</label>
+            <div className="relative">
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)}
+                className="form-input" placeholder="أدخل اسم المستخدم" required />
+              <User className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="form-label">كلمة المرور</label>
+            <div className="relative">
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                className="form-input" placeholder="••••••••" required />
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
+            </div>
+          </div>
+          {loginError && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span className="text-xs font-bold">{loginError}</span>
+            </div>
+          )}
+          <button type="submit" disabled={loginLoading}
+            className="w-full bg-brand-primary text-white py-4 rounded-xl font-black text-base hover:bg-brand-primary/80 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
+            {loginLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><span>تسجيل الدخول</span><ArrowLeft className="w-5 h-5" /></>}
+          </button>
+          <button type="button" onClick={() => setView('home')}
+            className="w-full text-slate-500 font-bold hover:text-white transition-colors py-2">
+            العودة للرئيسية
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
+  // ── Select Activity Step ────────────────────────────────────────────────────
+  if (step === 'select') return (
+    <div className="min-h-screen bg-brand-dark p-6" dir="rtl">
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-black text-white">اختر النشاط</h1>
+            <p className="text-slate-400 text-sm font-medium">مرحبًا، {organizer?.fullName}</p>
+          </div>
+          <button onClick={() => { setStep('login'); setOrganizer(null); }}
+            className="text-slate-400 hover:text-white transition-colors flex items-center gap-2 text-sm font-bold">
+            <LogOut className="w-4 h-4" /> خروج
+          </button>
+        </div>
+        {loadingActivities ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
+          </div>
+        ) : activities.length === 0 ? (
+          <div className="text-center py-20 text-slate-500 font-bold">لا توجد أنشطة مضافة</div>
+        ) : (
+          <div className="grid gap-4">
+            {activities.map(act => (
+              <button key={act.id} onClick={() => selectActivity(act)}
+                className="bg-brand-darker border border-brand-accent/10 hover:border-brand-primary/40 rounded-2xl p-5 text-right transition-all hover:bg-brand-primary/5 group">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-brand-primary/10 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-brand-primary/20 transition-all">
+                    {act.type === 'hall' ? <Building2 className="w-6 h-6 text-brand-primary" /> :
+                     act.type === 'workshop' ? <Hammer className="w-6 h-6 text-brand-primary" /> :
+                     act.type === 'lecture' ? <Mic2 className="w-6 h-6 text-brand-primary" /> :
+                     <Calendar className="w-6 h-6 text-brand-primary" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-white font-black text-lg leading-tight">{act.title}</h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-primary/10 text-brand-primary border border-brand-primary/20">
+                        {activityTypeLabel(act.type)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-slate-400 text-sm font-medium flex-wrap">
+                      {act.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{act.location}</span>}
+                      {act.startTime && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{act.startTime} - {act.endTime}</span>}
+                    </div>
+                  </div>
+                  <ChevronLeft className="w-5 h-5 text-slate-600 group-hover:text-brand-primary transition-colors shrink-0" />
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Active Checkin Step ─────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-brand-dark" dir="rtl">
+      {/* Header */}
+      <div className="bg-brand-darker border-b border-brand-accent/10 px-4 py-3 sticky top-0 z-40">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+          <button onClick={() => { stopScanner(); setStep('select'); setSelectedActivity(null); setAttendees([]); }}
+            className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors font-bold text-sm">
+            <ArrowRight className="w-4 h-4" /> تغيير النشاط
+          </button>
+          <div className="text-center flex-1 min-w-0">
+            <h1 className="text-white font-black text-base truncate">{selectedActivity?.title}</h1>
+            <p className="text-slate-500 text-xs font-medium">{activityTypeLabel(selectedActivity?.type)} · {selectedActivity?.location}</p>
+          </div>
+          <div className="flex items-center gap-2 bg-brand-primary/10 border border-brand-primary/20 px-3 py-1.5 rounded-full">
+            <Users className="w-3.5 h-3.5 text-brand-primary" />
+            <span className="text-brand-primary font-black text-sm">{attendees.length}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: QR + Input */}
+        <div className="space-y-4">
+          {/* Activity QR Code */}
+          <div className="bg-brand-darker border border-brand-accent/10 rounded-3xl p-6 text-center space-y-4">
+            <div>
+              <h2 className="text-white font-black text-lg">رمز QR للنشاط</h2>
+              <p className="text-slate-400 text-xs font-medium mt-1">الزوار يصورون هذا الرمز للتسجيل الذاتي</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 inline-block mx-auto shadow-2xl">
+              <QRCodeSVG
+                value={selfCheckinUrl}
+                size={200}
+                level="H"
+                includeMargin={false}
+              />
+            </div>
+            <div className="text-xs text-slate-500 font-medium break-all px-2">{selfCheckinUrl}</div>
+          </div>
+
+          {/* Input Mode Tabs */}
+          <div className="bg-brand-darker border border-brand-accent/10 rounded-3xl p-5 space-y-4">
+            <div className="flex bg-brand-dark p-1 rounded-xl border border-brand-accent/10">
+              <button onClick={() => { setInputMode('manual'); stopScanner(); }}
+                className={`flex-1 py-2 text-sm font-black rounded-lg transition-all flex items-center justify-center gap-2 ${inputMode === 'manual' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-500'}`}>
+                <Edit3 className="w-4 h-4" /> إدخال يدوي
+              </button>
+              <button onClick={() => { setInputMode('qr'); setTimeout(() => startScanner(), 200); }}
+                className={`flex-1 py-2 text-sm font-black rounded-lg transition-all flex items-center justify-center gap-2 ${inputMode === 'qr' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-500'}`}>
+                <Scan className="w-4 h-4" /> مسح QR
+              </button>
+            </div>
+
+            {inputMode === 'manual' ? (
+              <form onSubmit={e => { e.preventDefault(); recordAttendance(manualInput); }} className="space-y-3">
+                <div className="space-y-1">
+                  <label className="form-label text-xs">رقم الشارة أو رقم الهاتف</label>
+                  <input ref={manualRef} type="text" value={manualInput}
+                    onChange={e => setManualInput(e.target.value.toUpperCase())}
+                    placeholder="مثال: ATT-2026-0001 أو 0550123456"
+                    className="form-input text-sm" autoFocus />
+                </div>
+                <button type="submit" disabled={manualLoading || !manualInput.trim()}
+                  className="w-full bg-brand-primary text-white py-3 rounded-xl font-black text-sm hover:bg-brand-primary/80 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                  {manualLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4" /><span>تسجيل الحضور</span></>}
+                </button>
+              </form>
+            ) : (
+              <div className="space-y-3">
+                <div id="checkin-reader" className="rounded-xl overflow-hidden" style={{ minHeight: scannerActive ? 280 : 0 }} />
+                {scannerActive ? (
+                  <button onClick={stopScanner}
+                    className="w-full bg-red-500/10 border border-red-500/20 text-red-400 py-3 rounded-xl font-black text-sm hover:bg-red-500/20 transition-all flex items-center justify-center gap-2">
+                    <X className="w-4 h-4" /> إيقاف الكاميرا
+                  </button>
+                ) : (
+                  <button onClick={startScanner}
+                    className="w-full bg-brand-primary/10 border border-brand-primary/20 text-brand-primary py-3 rounded-xl font-black text-sm hover:bg-brand-primary/20 transition-all flex items-center justify-center gap-2">
+                    <Camera className="w-4 h-4" /> تشغيل الكاميرا
+                  </button>
+                )}
+                <p className="text-slate-500 text-xs text-center font-medium">صوّر رمز QR على شارة الزائر</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Attendees List */}
+        <div className="bg-brand-darker border border-brand-accent/10 rounded-3xl overflow-hidden flex flex-col" style={{ maxHeight: '80vh' }}>
+          <div className="p-4 border-b border-brand-accent/10 flex items-center justify-between">
+            <h3 className="text-white font-black text-base">قائمة الحضور</h3>
+            <span className="text-brand-primary font-black text-sm bg-brand-primary/10 px-3 py-1 rounded-full border border-brand-primary/20">
+              {attendees.length} حاضر
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-brand-accent/5">
+            {attendees.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
+                <Users className="w-10 h-10 opacity-30" />
+                <p className="font-bold text-sm">لا يوجد حضور بعد</p>
+              </div>
+            ) : (
+              attendees.map((att, idx) => (
+                <div key={att.id} className="flex items-center gap-3 p-4 hover:bg-white/2 transition-all">
+                  <span className="text-slate-600 text-xs font-bold w-6 text-center shrink-0">{attendees.length - idx}</span>
+                  {att.photo ? (
+                    <img src={att.photo} className="w-10 h-10 rounded-full object-cover border-2 border-brand-accent/20 shrink-0" />
+                  ) : (
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-black text-sm shrink-0 ${typeColor(att.type)}`}>
+                      {att.fullName?.charAt(0)}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-bold text-sm truncate">{att.fullName}</p>
+                    <p className="text-slate-500 text-xs font-medium truncate">{att.companyName || typeLabel(att.type)}</p>
+                  </div>
+                  <div className="text-left shrink-0 space-y-0.5">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full text-white ${typeColor(att.type)}`}>
+                      {typeLabel(att.type)}
+                    </span>
+                    <p className="text-slate-600 text-[10px] font-medium text-center">
+                      {new Date(att.attendedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Badge Flash Overlay */}
+      <AnimatePresence>
+        {newBadgeVisible && newBadge && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8, y: 40 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: -20 }}
+            transition={{ type: 'spring', damping: 18 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
+          >
+            <div className="bg-white rounded-3xl shadow-2xl p-5 flex items-center gap-4 min-w-[280px] max-w-[360px] border-4 border-emerald-400">
+              {newBadge.photo ? (
+                <img src={newBadge.photo} className="w-14 h-14 rounded-2xl object-cover shrink-0 shadow-md" />
+              ) : (
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-xl shrink-0 ${typeColor(newBadge.type)}`}>
+                  {newBadge.fullName?.charAt(0)}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span className="text-emerald-600 font-black text-xs">تم التسجيل</span>
+                </div>
+                <p className="text-gray-900 font-black text-base leading-tight truncate">{newBadge.fullName}</p>
+                <p className="text-gray-500 text-xs font-bold truncate">{newBadge.companyName || typeLabel(newBadge.type)}</p>
+                <span className={`inline-block mt-1 text-[10px] font-black px-2 py-0.5 rounded-full text-white ${typeColor(newBadge.type)}`}>
+                  {typeLabel(newBadge.type)} · {formatId(newBadge.id, newBadge.type)}
+                </span>
+              </div>
+              <div className="text-left shrink-0">
+                <p className="text-gray-400 text-[10px] font-bold">الوقت</p>
+                <p className="text-gray-700 font-black text-sm">
+                  {new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// ─── Self Checkin View (for visitors scanning activity QR) ─────────────────────
+const SelfCheckinView = ({ activityId, setView }: { activityId: string; setView: (v: any) => void }) => {
+  const [activity, setActivity] = useState<any>(null);
+  const [badgeInput, setBadgeInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+  const [registered, setRegistered] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/activities').then(r => r.json()).then(acts => {
+      const found = acts.find((a: any) => String(a.id) === String(activityId));
+      setActivity(found || null);
+    });
+  }, [activityId]);
+
+  const handleCheckin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const isPhone = /^\d{9,10}$/.test(badgeInput.trim());
+      const endpoint = isPhone ? '/api/attendance/by-phone' : '/api/attendance/by-badge';
+      const body = isPhone
+        ? { activityId: parseInt(activityId), phone: badgeInput.trim() }
+        : { activityId: parseInt(activityId), badgeId: badgeInput.trim().toUpperCase() };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'خطأ في التسجيل'); return; }
+      if (data.alreadyAttended) { setError('تم تسجيل حضورك مسبقاً في هذا النشاط'); return; }
+      setRegistered(data.registration);
+      setSuccess(true);
+    } catch {
+      setError('خطأ في الاتصال');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (success && registered) return (
+    <div className="min-h-screen bg-emerald-600 flex flex-col items-center justify-center p-6 text-white" dir="rtl">
+      <motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 12 }}
+        className="flex flex-col items-center space-y-6 text-center">
+        <div className="w-28 h-28 bg-white/20 rounded-full flex items-center justify-center shadow-2xl">
+          <CheckCircle2 className="w-16 h-16 text-white" />
+        </div>
+        <div>
+          <h1 className="text-3xl font-black">تم تسجيل حضورك!</h1>
+          <p className="text-emerald-100 font-bold mt-2">{registered.fullName}</p>
+          {activity && <p className="text-emerald-200 text-sm mt-1">{activity.title}</p>}
+        </div>
+        <div className="flex items-center gap-3 bg-white/10 px-6 py-3 rounded-2xl border border-white/20">
+          <Clock className="w-5 h-5" />
+          <span className="font-black text-xl">{new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+        <button onClick={() => setView('home')} className="text-emerald-100 font-bold underline text-sm">العودة للرئيسية</button>
+      </motion.div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-brand-dark flex items-center justify-center p-6" dir="rtl">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center space-y-3">
+          <div className="w-16 h-16 bg-brand-primary/10 rounded-2xl flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8 text-brand-primary" />
+          </div>
+          <h1 className="text-2xl font-black text-white">تسجيل الحضور</h1>
+          {activity && <p className="text-slate-400 font-bold text-sm">{activity.title}</p>}
+        </div>
+        <form onSubmit={handleCheckin} className="bg-brand-darker border border-brand-accent/10 rounded-3xl p-6 space-y-4">
+          <div className="space-y-2">
+            <label className="form-label text-sm">رقم الشارة أو رقم الهاتف</label>
+            <input type="text" value={badgeInput} onChange={e => setBadgeInput(e.target.value)}
+              placeholder="ATT-2026-0001 أو 0550123456"
+              className="form-input" autoFocus required />
+          </div>
+          {error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-bold flex items-center gap-2">
+              <XCircle className="w-4 h-4 shrink-0" />{error}
+            </div>
+          )}
+          <button type="submit" disabled={loading}
+            className="w-full bg-brand-primary text-white py-4 rounded-xl font-black text-base hover:bg-brand-primary/80 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><CheckCircle2 className="w-5 h-5" /><span>سجّل حضوري</span></>}
+          </button>
+          <button type="button" onClick={() => setView('home')} className="w-full text-slate-500 font-bold text-sm hover:text-white transition-colors py-1">
+            العودة للرئيسية
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const compressImage = (file: File, maxWidth = 800, maxHeight = 800, quality = 0.7): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -286,7 +858,8 @@ const compressImage = (file: File, maxWidth = 800, maxHeight = 800, quality = 0.
 };
 
 export default function App() {
-  const [view, setView] = useState<'home' | 'register' | 'badge' | 'scanner' | 'address-book' | 'program' | 'login' | 'admin' | 'event-registration'>('home');
+  const [view, setView] = useState<'home' | 'register' | 'badge' | 'scanner' | 'address-book' | 'program' | 'login' | 'admin' | 'event-registration' | 'checkin' | 'self-checkin'>('home');
+  const [selfCheckinActivityId, setSelfCheckinActivityId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminUser, setAdminUser] = useState({ username: '', password: '' });
   const [registrations, setRegistrations] = useState<RegistrationResult[]>([]);
@@ -483,7 +1056,17 @@ END:VCARD`;
     );
   };
   const [partnerItems, setPartnerItems] = useState<{id: number, name: string, logo: string, url: string}[]>([]);
-  
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkinId = params.get('checkin');
+    if (checkinId) {
+      setSelfCheckinActivityId(checkinId);
+      setView('self-checkin');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   useEffect(() => {
     const fetchData = async (retries = 3) => {
       try {
@@ -4382,6 +4965,7 @@ END:VCARD`;
                 <button onClick={() => { setView('program'); setIsMenuOpen(false); window.scrollTo(0, 0); }} className="block w-full text-right px-4 py-4 text-slate-400 font-bold hover:text-brand-primary">{siteContent.headerProgram}</button>
                 <button onClick={() => { setView('login'); setIsMenuOpen(false); window.scrollTo(0, 0); }} className="block w-full text-right px-4 py-4 text-slate-400 font-bold hover:text-brand-primary">{siteContent.headerLogin}</button>
                 <button onClick={() => { setView('register'); setIsMenuOpen(false); window.scrollTo(0, 0); }} className="block w-full text-right px-4 py-4 text-slate-400 font-bold hover:text-brand-primary">{siteContent.headerRegister}</button>
+                <button onClick={() => { setView('checkin'); setIsMenuOpen(false); window.scrollTo(0, 0); }} className="block w-full text-right px-4 py-4 text-brand-primary font-bold hover:text-brand-primary/80 flex items-center gap-2"><Scan className="w-4 h-4 inline" /> تسجيل الحضور</button>
               </div>
             </motion.div>
           )}
@@ -5231,6 +5815,7 @@ END:VCARD`;
                 <li><button onClick={() => { setView('register'); window.scrollTo(0, 0); }} className="text-slate-400 hover:text-brand-primary font-bold transition-colors text-xs md:text-base">{siteContent.headerRegister}</button></li>
                 <li><button onClick={() => { setView('login'); window.scrollTo(0, 0); }} className="text-slate-400 hover:text-brand-primary font-bold transition-colors text-xs md:text-base">{siteContent.headerLogin}</button></li>
                 <li><a href="#contact" className="text-slate-400 hover:text-brand-primary font-bold transition-colors text-xs md:text-base">اتصل بنا</a></li>
+                <li><button onClick={() => { setView('checkin'); window.scrollTo(0, 0); }} className="text-brand-primary hover:text-brand-primary/70 font-bold transition-colors text-xs md:text-base flex items-center gap-1"><Scan className="w-3 h-3" /> تسجيل الحضور</button></li>
               </ul>
             </div>
 
@@ -5328,6 +5913,25 @@ END:VCARD`;
               className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
               referrerPolicy="no-referrer"
             />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Checkin & Self-Checkin Views - Full screen overlays */}
+      <AnimatePresence>
+        {(view === 'checkin' || view === 'self-checkin') && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] bg-brand-dark overflow-auto"
+          >
+            {view === 'checkin' && (
+              <CheckinView setView={setView} siteContent={siteContent} />
+            )}
+            {view === 'self-checkin' && selfCheckinActivityId && (
+              <SelfCheckinView activityId={selfCheckinActivityId} setView={setView} />
+            )}
           </motion.div>
         )}
       </AnimatePresence>
