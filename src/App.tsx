@@ -65,6 +65,7 @@ interface RegistrationResult {
   email: string;
   phone: string;
   address: string;
+  age?: number | null;
   position?: string;
   companyName?: string;
   industry?: string;
@@ -3643,6 +3644,7 @@ END:VCARD`;
     email: '',
     phone: '',
     address: '',
+    age: '' as string,
     educationLevel: '',
     educationLevelOther: '',
     interests: [] as string[],
@@ -3742,6 +3744,7 @@ END:VCARD`;
           email: formData.email,
           phone: formData.phone,
           address: formData.address,
+          age: formData.age ? parseInt(formData.age) : null,
           position: formData.position || (regType === 'attendee' ? (formData.educationLevel === 'other' ? formData.educationLevelOther : formData.educationLevel) : 'Exhibitor'),
           companyName: formData.companyName || 'Guerrara Expo 2026 Participant',
           badgeId: isUpdating ? registrationResult.badgeId : data.badgeId,
@@ -3759,6 +3762,7 @@ END:VCARD`;
           email: '',
           phone: '',
           address: '',
+          age: '',
           educationLevel: '',
           educationLevelOther: '',
           interests: [],
@@ -3831,6 +3835,7 @@ END:VCARD`;
         email: registrationResult.email,
         phone: registrationResult.phone,
         address: registrationResult.address || (registrationResult as any).city || '',
+        age: registrationResult.age ? String(registrationResult.age) : '',
         position: registrationResult.position || '',
         companyName: registrationResult.companyName || '',
         photo: registrationResult.photo,
@@ -4228,6 +4233,12 @@ END:VCARD`;
 
           {/* Contact Info - Left Aligned */}
           <div className="w-full space-y-2 pt-3 border-t border-slate-50">
+            {result.age && (
+              <div className="flex items-center gap-3 text-slate-600 justify-end">
+                <span className="text-xs font-medium">{result.age} سنة</span>
+                <User className="w-3.5 h-3.5 text-slate-400" />
+              </div>
+            )}
             <div className="flex items-center gap-3 text-slate-600 justify-end">
               <span className="text-xs font-medium">{result.phone}</span>
               <Phone className="w-3.5 h-3.5 text-slate-400" />
@@ -4927,7 +4938,7 @@ END:VCARD`;
                 />
               </div>
               <div className="flex flex-col items-end">
-                <span className="text-lg md:text-2xl font-black tracking-tight text-white leading-none">{siteContent.title}</span>
+                <span className="text-xs md:text-sm font-black tracking-tight text-white leading-none">{siteContent.title}</span>
                 <span className="text-[9px] md:text-[11px] font-bold text-brand-primary tracking-widest uppercase">{siteContent.edition} {siteContent.year}</span>
               </div>
             </div>
@@ -5413,6 +5424,39 @@ END:VCARD`;
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                      <div className="space-y-1 md:space-y-2">
+                        <label className="form-label text-xs md:text-sm">السن</label>
+                        <div className="relative">
+                          <input 
+                            type="number"
+                            min="10"
+                            max="100"
+                            value={formData.age}
+                            onChange={(e) => setFormData({...formData, age: e.target.value})}
+                            className="form-input h-11 md:h-12"
+                            placeholder="سنك"
+                            dir="rtl"
+                          />
+                          <User className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
+                        </div>
+                      </div>
+                      <div className="space-y-1 md:space-y-2">
+                        <label className="form-label text-xs md:text-sm">المنصب / الوظيفة</label>
+                        <div className="relative">
+                          <input 
+                            type="text"
+                            value={formData.position}
+                            onChange={(e) => setFormData({...formData, position: e.target.value})}
+                            className="form-input h-11 md:h-12"
+                            placeholder="طالب / موظف / مدير ..."
+                            dir="rtl"
+                          />
+                          <Briefcase className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="space-y-4">
                       <div className="space-y-1 md:space-y-2">
                         <label className="form-label text-xs md:text-sm">المستوى التعليمي / المهني</label>
@@ -5823,7 +5867,7 @@ END:VCARD`;
             <div className="space-y-5 flex flex-col items-center">
               <div className="flex items-center justify-center gap-3">
                 <div className="flex flex-col items-center">
-                  <span className="text-lg md:text-xl font-black text-white leading-none">{siteContent.title}</span>
+                  <span className="text-xs md:text-sm font-black text-white leading-none">{siteContent.title}</span>
                   <span className="text-[8px] md:text-xs font-bold text-brand-primary tracking-widest uppercase">{siteContent.edition} {siteContent.year}</span>
                 </div>
                 <div className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center overflow-hidden">

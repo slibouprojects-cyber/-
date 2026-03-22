@@ -22,6 +22,13 @@ try {
     console.log("Updating database schema: Dropping old registrations table...");
     db.exec("DROP TABLE registrations");
   }
+
+  // Add age column if it doesn't exist (migration for existing DBs)
+  const refreshedInfo = db.prepare("PRAGMA table_info(registrations)").all() as any[];
+  if (refreshedInfo.length > 0 && !refreshedInfo.some((col: any) => col.name === 'age')) {
+    db.exec("ALTER TABLE registrations ADD COLUMN age INTEGER");
+    console.log("Migration: added 'age' column to registrations.");
+  }
 } catch (e) {
   // Table might not exist yet, which is fine
 }
@@ -34,6 +41,7 @@ db.exec(`
     email TEXT NOT NULL,
     phone TEXT NOT NULL,
     address TEXT,
+    age INTEGER,
     educationLevel TEXT,
     interests TEXT, -- JSON string for attendees
     companyName TEXT,
@@ -328,7 +336,7 @@ async function startServer() {
   app.put("/api/admin/registration/:id", (req, res) => {
     const id = parseInt(req.params.id);
     const { 
-      type, fullName, email, phone, address, educationLevel, interests,
+      type, fullName, email, phone, address, age, educationLevel, interests,
       companyName, industry, position, website, participationType, package: pkg, description, photo, status,
       username, password
     } = req.body;
@@ -336,14 +344,14 @@ async function startServer() {
     try {
       const stmt = db.prepare(`
         UPDATE registrations SET 
-          type = ?, fullName = ?, email = ?, phone = ?, address = ?, 
+          type = ?, fullName = ?, email = ?, phone = ?, address = ?, age = ?,
           educationLevel = ?, interests = ?, companyName = ?, industry = ?, 
           position = ?, website = ?, participationType = ?, package = ?, 
           description = ?, photo = ?, status = ?, username = ?, password = ?
         WHERE id = ?
       `);
       stmt.run(
-        type, fullName, email, phone, address, educationLevel, 
+        type, fullName, email, phone, address, age || null, educationLevel, 
         interests ? JSON.stringify(interests) : null,
         companyName, industry, position, website, participationType, pkg, description, photo, status,
         username || null, password || null,
@@ -564,7 +572,7 @@ async function startServer() {
 
   app.post("/api/register", (req, res) => {
     const { 
-      type, fullName, email, phone, address, educationLevel, interests,
+      type, fullName, email, phone, address, age, educationLevel, interests,
       companyName, industry, position, website, participationType, package: pkg, description, photo,
       username, password
     } = req.body;
@@ -582,14 +590,14 @@ async function startServer() {
 
       const stmt = db.prepare(`
         INSERT INTO registrations (
-          type, fullName, email, phone, address, educationLevel, interests,
+          type, fullName, email, phone, address, age, educationLevel, interests,
           companyName, industry, position, website, participationType, package, description, photo,
           username, password
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
-        type, fullName, email, phone, address, educationLevel, 
+        type, fullName, email, phone, address, age || null, educationLevel, 
         interests ? JSON.stringify(interests) : null,
         companyName, industry, position, website, participationType, pkg, description, photo,
         username || null, password || null
