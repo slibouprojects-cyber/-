@@ -1,0 +1,41 @@
+============================================
+  دليل رفع معرض القرارة الاقتصادي 2026
+  على استضافة cPanel
+============================================
+
+الخطوات:
+
+1. رفع الملفات:
+   - اذهب إلى cPanel → File Manager
+   - ادخل إلى مجلد public_html أو المجلد الخاص بدومينك
+   - ارفع ملف الـ ZIP واستخرجه هناك
+
+2. إعداد تطبيق Node.js:
+   - اذهب إلى cPanel → "Setup Node.js App"
+   - اضغط "Create Application"
+   - اختر:
+       Node.js Version : 18 أو أعلى
+       Application Mode: Production
+       Application Root : المجلد الذي رفعت فيه الملفات
+       Application URL  : دومينك (مثلاً: yourdomain.com)
+       Startup File     : server.js
+   - اضغط Create
+
+3. تثبيت المكتبات:
+   - في نفس الصفحة اضغط زر "Run NPM Install"
+   - أو من Terminal في cPanel اكتب:
+       cd /home/USERNAME/APPFOLDER
+       npm install
+
+4. تشغيل التطبيق:
+   - اضغط "Restart" في صفحة Node.js App
+   - افتح دومينك في المتصفح
+
+ملاحظات مهمة:
+- تأكد أن استضافتك تدعم Node.js (Phusion Passenger)
+- المنفذ يُضبط تلقائياً من cPanel
+- قاعدة البيانات: ملف database.sqlite يُنشأ تلقائياً عند أول تشغيل
+- إذا كنت تريد نقل البيانات الحالية، ارفع ملف database.sqlite من Replit
+
+في حال وجود أي مشكلة: تواصل مع الدعم التقني لشركة الاستضافة وأخبرهم أنك تشغّل تطبيق Node.js 18+
+============================================

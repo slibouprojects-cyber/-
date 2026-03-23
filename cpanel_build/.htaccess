@@ -1,0 +1,9 @@
+PassengerNodejs /usr/bin/node
+PassengerStartupFile server.js
+PassengerAppType node
+PassengerAppRoot /home/{username}/{appfolder}
+
+# Rewrite all requests to the Node.js app
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^(.*)$ http://localhost:%{ENV:PASSENGER_PORT}/$1 [P,L]
